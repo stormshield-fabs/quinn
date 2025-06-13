@@ -3,6 +3,7 @@ use std::cmp;
 use std::sync::Arc;
 
 use super::{BASE_DATAGRAM_SIZE, Controller, ControllerFactory};
+use crate::congestion::QlogMetrics;
 use crate::connection::RttEstimator;
 use crate::{Duration, Instant};
 
@@ -70,6 +71,9 @@ pub struct Cubic {
     recovery_start_time: Option<Instant>,
     cubic_state: State,
     current_mtu: u64,
+
+    qlog_metrics: QlogMetrics,
+    rtt: Option<RttEstimator>,
 }
 
 impl Cubic {
@@ -82,6 +86,8 @@ impl Cubic {
             config,
             cubic_state: Default::default(),
             current_mtu: current_mtu as u64,
+            qlog_metrics: QlogMetrics::default(),
+            rtt: None,
         }
     }
 
@@ -99,6 +105,8 @@ impl Controller for Cubic {
         app_limited: bool,
         rtt: &RttEstimator,
     ) {
+        self.rtt = Some(*rtt);
+
         if app_limited
             || self
                 .recovery_start_time
@@ -230,6 +238,20 @@ impl Controller for Cubic {
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
+    }
+
+    fn qlog(&mut self) -> Option<qlog::events::EventData> {
+        let latest = QlogMetrics {
+            cwnd: self.window(),
+            ssthresh: Some(self.ssthresh),
+            min_rtt: self.rtt.map(|rtt| rtt.min()),
+            smoothed_rtt: self.rtt.map(|rtt| rtt.get()),
+            latest_rtt: self.rtt.map(|rtt| rtt.latest),
+            rttvar: self.rtt.map(|rtt| rtt.var),
+            ..Default::default()
+        };
+
+        self.qlog_metrics.maybe_update(latest)
     }
 }
 

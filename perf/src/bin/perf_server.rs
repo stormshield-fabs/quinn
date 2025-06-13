@@ -137,7 +137,11 @@ async fn run(opt: Opt) -> Result<()> {
 }
 
 async fn handle(handshake: quinn::Incoming, opt: Arc<Opt>) -> Result<()> {
-    let connection = handshake.await.context("handshake failed")?;
+    let mut connection = handshake.await.context("handshake failed")?;
+
+    let writer = std::fs::File::create("server.json")?;
+    connection.set_qlog(Box::new(writer), "perf-server".into(), "".into());
+
     debug!("{} connected", connection.remote_address());
     tokio::try_join!(
         drive_uni(connection.clone()),

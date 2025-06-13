@@ -156,10 +156,13 @@ async fn run(opt: Opt) -> Result<()> {
 
     let stream_stats = OpenStreamStats::default();
 
-    let connection = endpoint
+    let mut connection = endpoint
         .connect_with(config, addr, host_name)?
         .await
         .context("connecting")?;
+
+    let writer = std::fs::File::create("client.json")?;
+    connection.set_qlog(Box::new(writer), "perf-client".into(), "".into());
 
     info!("established");
 

@@ -158,14 +158,14 @@ impl PathData {
 }
 
 /// RTT estimation for a particular network path
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct RttEstimator {
     /// The most recent RTT measurement made when receiving an ack for a previously unacked packet
-    latest: Duration,
+    pub latest: Duration,
     /// The smoothed RTT of the connection, computed as described in RFC6298
     smoothed: Option<Duration>,
     /// The RTT variance, computed as described in RFC6298
-    var: Duration,
+    pub var: Duration,
     /// The minimum RTT seen in the connection, ignoring ack delay.
     min: Duration,
 }

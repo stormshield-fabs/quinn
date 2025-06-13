@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::{BASE_DATAGRAM_SIZE, Controller, ControllerFactory};
 use crate::Instant;
+use crate::congestion::QlogMetrics;
 use crate::connection::RttEstimator;
 
 /// A simple, standard congestion controller
@@ -20,6 +21,9 @@ pub struct NewReno {
     recovery_start_time: Instant,
     /// Bytes which had been acked by the peer since leaving slow start
     bytes_acked: u64,
+
+    qlog_metrics: QlogMetrics,
+    rtt: Option<RttEstimator>,
 }
 
 impl NewReno {
@@ -32,6 +36,8 @@ impl NewReno {
             current_mtu: current_mtu as u64,
             config,
             bytes_acked: 0,
+            qlog_metrics: QlogMetrics::default(),
+            rtt: None,
         }
     }
 
@@ -47,8 +53,10 @@ impl Controller for NewReno {
         sent: Instant,
         bytes: u64,
         app_limited: bool,
-        _rtt: &RttEstimator,
+        rtt: &RttEstimator,
     ) {
+        self.rtt = Some(*rtt);
+
         if app_limited || sent <= self.recovery_start_time {
             return;
         }
@@ -122,6 +130,20 @@ impl Controller for NewReno {
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
+    }
+
+    fn qlog(&mut self) -> Option<qlog::events::EventData> {
+        let latest = QlogMetrics {
+            cwnd: self.window(),
+            ssthresh: Some(self.ssthresh),
+            min_rtt: self.rtt.map(|rtt| rtt.min()),
+            smoothed_rtt: self.rtt.map(|rtt| rtt.get()),
+            latest_rtt: self.rtt.map(|rtt| rtt.latest),
+            rttvar: self.rtt.map(|rtt| rtt.var),
+            ..Default::default()
+        };
+
+        self.qlog_metrics.maybe_update(latest)
     }
 }
 

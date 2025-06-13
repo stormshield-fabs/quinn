@@ -641,6 +641,17 @@ impl Connection {
         // May need to send MAX_STREAMS to make progress
         conn.wake();
     }
+
+    /// Set up qlog for this connection.
+    pub fn set_qlog(
+        &mut self,
+        writer: Box<dyn std::io::Write + Send + Sync>,
+        title: String,
+        description: String,
+    ) {
+        let mut state = self.0.state.lock("qlog");
+        state.inner.set_qlog(writer, title, description);
+    }
 }
 
 pin_project! {

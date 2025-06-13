@@ -9,6 +9,7 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use frame::StreamMetaVec;
+use qlog::{events::EventImportance, streamer::QlogStreamer};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use thiserror::Error;
 use tracing::{debug, error, trace, trace_span, warn};
@@ -233,6 +234,8 @@ pub struct Connection {
     stats: ConnectionStats,
     /// QUIC version used for the connection.
     version: u32,
+
+    qlog_streamer: Option<QlogStreamer>,
 }
 
 impl Connection {
@@ -350,6 +353,7 @@ impl Connection {
             rng,
             stats: ConnectionStats::default(),
             version,
+            qlog_streamer: None,
         };
         if path_validated {
             this.on_path_validated();
@@ -360,6 +364,52 @@ impl Connection {
             this.init_0rtt();
         }
         this
+    }
+
+    /// Set up qlog for this connection.
+    pub fn set_qlog(
+        &mut self,
+        writer: Box<dyn std::io::Write + Send + Sync>,
+        title: String,
+        description: String,
+    ) {
+        let vp = if self.side.is_server() {
+            qlog::VantagePointType::Server
+        } else {
+            qlog::VantagePointType::Client
+        };
+
+        let level = EventImportance::Core;
+
+        let trace = qlog::TraceSeq::new(
+            qlog::VantagePoint {
+                name: None,
+                ty: vp,
+                flow: None,
+            },
+            Some(title.to_string()),
+            Some(description.to_string()),
+            Some(qlog::Configuration {
+                time_offset: Some(0.0),
+                original_uris: None,
+            }),
+            None,
+        );
+
+        let mut streamer = qlog::streamer::QlogStreamer::new(
+            qlog::QLOG_VERSION.to_string(),
+            Some(title),
+            Some(description),
+            None,
+            std::time::Instant::now(),
+            trace,
+            level,
+            writer,
+        );
+
+        streamer.start_log().ok();
+
+        self.qlog_streamer = Some(streamer);
     }
 
     /// Returns the next time at which `handle_timeout` should be called
@@ -909,6 +959,12 @@ impl Connection {
             self.path
                 .congestion
                 .on_sent(now, buf.len() as u64, last_packet_number);
+
+            if let Some(qlog_streamer) = &mut self.qlog_streamer {
+                if let Some(event) = self.path.congestion.qlog() {
+                    qlog_streamer.add_event_data_now(event).ok();
+                }
+            }
         }
 
         self.app_limited = buf.is_empty() && !congestion_blocked;
@@ -1153,6 +1209,12 @@ impl Connection {
                 }
                 Timer::LossDetection => {
                     self.on_loss_detection_timeout(now);
+
+                    if let Some(qlog_streamer) = &mut self.qlog_streamer {
+                        if let Some(event) = self.path.congestion.qlog() {
+                            qlog_streamer.add_event_data_now(event).ok();
+                        }
+                    }
                 }
                 Timer::KeyDiscard => {
                     self.zero_rtt_crypto = None;
@@ -1947,6 +2009,13 @@ impl Connection {
         );
 
         self.process_decrypted_packet(now, remote, Some(packet_number), packet.into())?;
+
+        if let Some(qlog_streamer) = &mut self.qlog_streamer {
+            if let Some(event) = self.path.congestion.qlog() {
+                qlog_streamer.add_event_data_now(event).ok();
+            }
+        }
+
         if let Some(data) = remaining {
             self.handle_coalesced(now, remote, ecn, data);
         }
@@ -2268,7 +2337,15 @@ impl Connection {
                             packet.header.is_1rtt(),
                         );
                     }
-                    self.process_decrypted_packet(now, remote, number, packet)
+                    let result = self.process_decrypted_packet(now, remote, number, packet);
+
+                    if let Some(qlog_streamer) = &mut self.qlog_streamer {
+                        if let Some(event) = self.path.congestion.qlog() {
+                            qlog_streamer.add_event_data_now(event).ok();
+                        }
+                    }
+
+                    result
                 }
             }
         };

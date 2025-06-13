@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use rand::{Rng, SeedableRng};
 
+use crate::congestion::QlogMetrics;
 use crate::congestion::bbr::bw_estimation::BandwidthEstimation;
 use crate::congestion::bbr::min_max::MinMax;
 use crate::connection::RttEstimator;
@@ -56,6 +57,9 @@ pub struct Bbr {
     round_wo_bw_gain: u64,
     ack_aggregation: AckAggregationState,
     random_number_generator: rand::rngs::StdRng,
+
+    qlog_metrics: QlogMetrics,
+    rtt: Option<RttEstimator>,
 }
 
 impl Bbr {
@@ -97,6 +101,8 @@ impl Bbr {
             round_wo_bw_gain: 0,
             ack_aggregation: AckAggregationState::default(),
             random_number_generator: rand::rngs::StdRng::from_os_rng(),
+            qlog_metrics: QlogMetrics::default(),
+            rtt: None,
         }
     }
 
@@ -399,6 +405,8 @@ impl Controller for Bbr {
         app_limited: bool,
         rtt: &RttEstimator,
     ) {
+        self.rtt = Some(*rtt);
+
         self.max_bandwidth
             .on_ack(now, sent, bytes, self.round_count, app_limited);
         self.acked_bytes += bytes;
@@ -495,6 +503,20 @@ impl Controller for Bbr {
 
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
+    }
+
+    fn qlog(&mut self) -> Option<qlog::events::EventData> {
+        let latest = QlogMetrics {
+            cwnd: self.window(),
+            min_rtt: self.rtt.map(|rtt| rtt.min()),
+            smoothed_rtt: self.rtt.map(|rtt| rtt.get()),
+            latest_rtt: self.rtt.map(|rtt| rtt.latest),
+            rttvar: self.rtt.map(|rtt| rtt.var),
+            pacing_rate: Some(self.pacing_rate),
+            ..Default::default()
+        };
+
+        self.qlog_metrics.maybe_update(latest)
     }
 }
 
