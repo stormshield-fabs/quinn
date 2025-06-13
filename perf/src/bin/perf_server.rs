@@ -7,7 +7,9 @@ use quinn::{TokioRuntime, crypto::rustls::QuicServerConfig};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tracing::{debug, error, info};
 
-use perf::{PERF_CIPHER_SUITES, bind_socket, noprotection::NoProtectionServerConfig};
+use perf::{
+    CongestionAlgorithm, PERF_CIPHER_SUITES, bind_socket, noprotection::NoProtectionServerConfig,
+};
 
 #[derive(Parser)]
 #[clap(name = "server")]
@@ -39,6 +41,9 @@ struct Opt {
     /// Disable packet encryption/decryption (for debugging purpose)
     #[clap(long = "no-protection")]
     no_protection: bool,
+    /// Congestion algorithm to use
+    #[clap(long = "congestion")]
+    cong_alg: Option<CongestionAlgorithm>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -93,6 +98,10 @@ async fn run(opt: Opt) -> Result<()> {
 
     let mut transport = quinn::TransportConfig::default();
     transport.initial_mtu(opt.initial_mtu);
+
+    if let Some(cong_alg) = opt.cong_alg {
+        transport.congestion_controller_factory(cong_alg.factory());
+    }
 
     let crypto = Arc::new(QuicServerConfig::try_from(crypto)?);
     let mut config = quinn::ServerConfig::with_crypto(match opt.no_protection {

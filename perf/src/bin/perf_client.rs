@@ -12,7 +12,10 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info};
 
-use perf::stats::{OpenStreamStats, Stats};
+use perf::{
+    CongestionAlgorithm,
+    stats::{OpenStreamStats, Stats},
+};
 use perf::{bind_socket, noprotection::NoProtectionClientConfig};
 #[cfg(feature = "json-output")]
 use std::path::PathBuf;
@@ -70,6 +73,9 @@ struct Opt {
     /// Disable packet encryption/decryption (for debugging purpose)
     #[clap(long = "no-protection")]
     no_protection: bool,
+    /// Congestion algorithm to use
+    #[clap(long = "congestion")]
+    cong_alg: Option<CongestionAlgorithm>,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -136,6 +142,10 @@ async fn run(opt: Opt) -> Result<()> {
 
     let mut transport = quinn::TransportConfig::default();
     transport.initial_mtu(opt.initial_mtu);
+
+    if let Some(cong_alg) = opt.cong_alg {
+        transport.congestion_controller_factory(cong_alg.factory());
+    }
 
     let crypto = Arc::new(QuicClientConfig::try_from(crypto)?);
     let mut config = quinn::ClientConfig::new(match opt.no_protection {
