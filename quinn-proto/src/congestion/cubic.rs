@@ -153,7 +153,7 @@ impl Controller for Cubic {
             if w_cubic < w_est {
                 // TCP friendly region.
                 cubic_cwnd = cmp::max(cubic_cwnd, w_est as u64);
-            } else if cubic_cwnd < w_cubic as u64 {
+            } else if cubic_cwnd < self.state.w_max as u64 {
                 // Concave region or convex region use same increment.
                 let cubic_inc =
                     (w_cubic - cubic_cwnd as f64) / cubic_cwnd as f64 * self.current_mtu as f64;
