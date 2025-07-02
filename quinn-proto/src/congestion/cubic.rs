@@ -25,6 +25,8 @@ pub(super) struct State {
     /// Congestion window size when the last congestion event occurred.
     w_max: f64,
 
+    w_last_max: f64,
+
     /// Congestion window increment stored during congestion avoidance.
     cwnd_inc: u64,
 
@@ -198,10 +200,12 @@ impl Controller for Cubic {
 
         self.state.recovery_start_time = Some(now);
 
-        // Fast convergence
-        if (self.state.window as f64) < self.state.w_max {
+        // 4.6 Fast convergence
+        if (self.state.window as f64) < self.state.w_last_max {
+            self.state.w_last_max = self.state.window as f64;
             self.state.w_max = self.state.window as f64 * (1.0 + BETA_CUBIC) / 2.0;
         } else {
+            self.state.w_last_max = self.state.window as f64;
             self.state.w_max = self.state.window as f64;
         }
 
