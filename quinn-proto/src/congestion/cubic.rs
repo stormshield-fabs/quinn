@@ -224,7 +224,8 @@ impl Controller for Cubic {
                 self.minimum_window(),
             );
 
-            self.state.cwnd_inc = 0;
+            // XXX: not clear whether we should be doing this?
+            // self.state.cwnd_inc = 0;
 
             self.state.window = self.minimum_window();
         }
