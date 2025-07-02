@@ -169,7 +169,7 @@ impl Controller for Cubic {
             // the increase of cwnd to 1 max_datagram_size per cwnd acknowledged.
             if self.state.cwnd_inc >= self.current_mtu {
                 self.state.window += self.current_mtu;
-                self.state.cwnd_inc = 0;
+                self.state.cwnd_inc -= self.current_mtu;
             }
         }
     }
